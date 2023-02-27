@@ -116,7 +116,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                                 }
                             }
                             Err(err) => {
-                                let msg = format!("ERR: {}", err);
+                                let msg = format!("ERR: {} for request: \"{}|\"", err, get_str);
                                 eprintln!("{}", msg);
                                 mk_response(msg)
                             }
