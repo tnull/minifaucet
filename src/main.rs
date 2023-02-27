@@ -103,11 +103,23 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                                     &addr, amount, None, None, None, None, None, None,
                                 );
                                 match rpc_res {
-                                    Ok(txid) => mk_response(format!("OK: {}", txid)),
-                                    Err(err) => mk_response(format!("ERR: {}", err)),
+                                    Ok(txid) => {
+                                        let msg = format!("OK: {}", txid);
+                                        println!("{}", msg);
+                                        mk_response(msg)
+                                    }
+                                    Err(err) => {
+                                        let msg = format!("ERR: {}", err);
+                                        eprintln!("{}", msg);
+                                        mk_response(msg)
+                                    }
                                 }
                             }
-                            Err(err) => mk_response(format!("ERR: {}", err)),
+                            Err(err) => {
+                                let msg = format!("ERR: {}", err);
+                                eprintln!("{}", msg);
+                                mk_response(msg)
+                            }
                         }
                     } else {
                         default_response()
