@@ -86,7 +86,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
         fn default_response() -> Result<Response<Full<Bytes>>, hyper::Error> {
             Ok(Response::builder()
                 .body(Full::new(Bytes::from(
-                    "Try /BITCOIN_ADDRESS to get some regtest bitcoin!",
+                    "Try /faucet/BITCOIN_ADDRESS to get some regtest bitcoin!",
                 )))
                 .unwrap())
         }
@@ -94,9 +94,9 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
         let res = match (req.method(), req.uri().path()) {
             (&Method::GET, "/") => default_response(),
             (&Method::GET, get_str) => {
-                if get_str.len() < 50 {
+                if get_str.len() < 55 {
                     if get_str.starts_with("/faucet/") {
-                        match Address::from_str(&get_str[1..]) {
+                        match Address::from_str(&get_str[8..]) {
                             Ok(addr) => {
                                 let amount = Amount::from_sat(self.sats_per_request);
                                 let rpc_res = self.rpc_client.send_to_address(
@@ -109,7 +109,8 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                                         mk_response(msg)
                                     }
                                     Err(err) => {
-										let msg = format!("ERR: {} for request: \"{}|\"", err, get_str);
+                                        let msg =
+                                            format!("ERR: {} for request: \"{}|\"", err, get_str);
                                         eprintln!("{}", msg);
                                         mk_response(msg)
                                     }
