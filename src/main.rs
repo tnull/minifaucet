@@ -95,7 +95,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
             (&Method::GET, "/") => default_response(),
             (&Method::GET, get_str) => {
                 if get_str.len() < 50 {
-                    if get_str.starts_with("/") {
+                    if get_str.starts_with("/faucet/") {
                         match Address::from_str(&get_str[1..]) {
                             Ok(addr) => {
                                 let amount = Amount::from_sat(self.sats_per_request);
@@ -109,7 +109,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                                         mk_response(msg)
                                     }
                                     Err(err) => {
-                                        let msg = format!("ERR: {}", err);
+										let msg = format!("ERR: {} for request: \"{}|\"", err, get_str);
                                         eprintln!("{}", msg);
                                         mk_response(msg)
                                     }
