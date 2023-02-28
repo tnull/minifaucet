@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -5,6 +6,7 @@ use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 use http_body_util::Full;
 use hyper::body::Bytes;
@@ -19,7 +21,10 @@ use hyper::Method;
 use tokio::net::TcpListener;
 
 use bitcoin::network::constants::Network;
+use bitcoin::hashes::Hash;
 use ldk_node::{Builder, Config, Node};
+use lightning::ln::PaymentHash;
+use lightning_invoice::Invoice;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -56,16 +61,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let builder = Builder::from_config(config);
 
     let node = Arc::new(Mutex::new(builder.build()));
-    node.lock().unwrap().start();
+    let _ = node.lock().unwrap().start();
+
+    let passphrases = Arc::new(vec!["testasdf".to_string()]);
 
     loop {
-		let node = Arc::clone(&node);
+        let node = Arc::clone(&node);
+        let passphrases = Arc::clone(&passphrases);
         let (stream, _) = listener.accept().await?;
 
         let client = Arc::clone(&rpc_client);
         tokio::task::spawn(async move {
             if let Err(err) = http1::Builder::new()
-                .serve_connection(stream, FaucetSvc::new(client, sats_per_request, node))
+                .serve_connection(
+                    stream,
+                    FaucetSvc::new(client, sats_per_request, node, passphrases),
+                )
                 .await
             {
                 println!("Error serving connection: {:?}", err);
@@ -78,14 +89,27 @@ struct FaucetSvc {
     rpc_client: Arc<Client>,
     sats_per_request: u64,
     node: Arc<Mutex<Node>>,
+    passphrases: Arc<Vec<String>>,
+    paymenthash_tracking: Mutex<HashMap<PaymentHash, (String, SystemTime)>>,
+    passphrase_to_invoice: Mutex<HashMap<String, Invoice>>,
 }
 
 impl FaucetSvc {
-    pub fn new(rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Mutex<Node>>) -> Self {
+    pub fn new(
+        rpc_client: Arc<Client>,
+        sats_per_request: u64,
+        node: Arc<Mutex<Node>>,
+        passphrases: Arc<Vec<String>>,
+    ) -> Self {
+        let paymenthash_tracking = Mutex::new(HashMap::new());
+        let passphrase_to_invoice = Mutex::new(HashMap::new());
         Self {
             rpc_client,
             sats_per_request,
             node,
+            passphrases,
+			paymenthash_tracking,
+            passphrase_to_invoice,
         }
     }
 }
@@ -144,11 +168,40 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                     }
                 }
             }
+            Some("getinvoice") => {
+                if let Some(passphrase) = url_parts.next() {
+                    let passphrase = passphrase.to_string();
+                    if self.passphrases.contains(&passphrase) {
+                        let mut invoice_map = self.passphrase_to_invoice.lock().unwrap();
+                        let mut paymenthash_map = self.paymenthash_tracking.lock().unwrap();
+                        let invoice = if let Some(invoice) = invoice_map.get(&passphrase) {
+                            invoice.clone()
+                        } else {
+                            let invoice = self
+                                .node
+                                .lock()
+                                .unwrap()
+                                .receive_payment(Some(10000000), &passphrase, 7200)
+                                .unwrap();
+                            invoice_map.insert(passphrase.clone(), invoice.clone());
+                            paymenthash_map.insert(
+                                PaymentHash(invoice.payment_hash().clone().into_inner()),
+                                (passphrase.clone(), SystemTime::now()),
+                            );
+                            invoice
+                        };
+
+                        let msg = format!("Hi {}! Please pay invoice: {}", passphrase, invoice);
+                        println!("{}", msg);
+                        return mk_response(msg);
+                    }
+                }
+            }
             Some("getnodeaddress") => {
-				let msg = format!("Node ID: {}", self.node.lock().unwrap().node_id().unwrap());
-				println!("{}", msg);
-				return mk_response(msg);
-			}
+                let msg = format!("Node ID: {}", self.node.lock().unwrap().node_id().unwrap());
+                println!("{}", msg);
+                return mk_response(msg);
+            }
             Some(path) => {
                 let msg = format!("ERR: Couldn't find path {}", path);
                 eprintln!("{}", msg);
