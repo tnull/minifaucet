@@ -11,3 +11,4 @@ tokio = { version = "1", features = ["full"] }
 http-body-util = "0.1.0-rc.2"
 bitcoincore-rpc = "0.16.0"
 bitcoin = "0.29.2"
+ldk-node = { git = "https://github.com/tnull/ldk-node.git", branch = "2022-09-initial-setup-and-api" }

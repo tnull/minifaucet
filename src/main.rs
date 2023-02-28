@@ -4,6 +4,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use http_body_util::Full;
 use hyper::body::Bytes;
@@ -17,12 +18,15 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use hyper::Method;
 use tokio::net::TcpListener;
 
+use bitcoin::network::constants::Network;
+use ldk_node::{Builder, Config, Node};
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = env::args().collect();
-    if args.len() < 5 {
+    if args.len() < 6 {
         eprintln!(
-            "USAGE: {} SATS_PER_REQUEST LISTEN_ADDR RPC_URL COOKIE_FILE_PATH",
+            "USAGE: {} SATS_PER_REQUEST LISTEN_ADDR RPC_URL ESPLORA_URL COOKIE_FILE_PATH",
             args[0]
         );
         std::process::exit(-1);
@@ -31,7 +35,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let sats_per_request = u64::from_str(&args[1]).expect("Couldn't parse sats amount");
     let listening_address = &args[2];
     let rpc_url = &args[3];
-    let cookie_file_path = &args[4];
+    let esplora_url = &args[4];
+    let cookie_file_path = &args[5];
 
     let addr: SocketAddr = listening_address
         .parse()
@@ -44,22 +49,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .expect("Couldn't connect RPC client"),
     );
 
+    let mut config = Config::default();
+    config.esplora_server_url = esplora_url.to_string();
+    config.network = Network::Regtest;
+
+    let builder = Builder::from_config(config);
+
+    let node = Arc::new(Mutex::new(builder.build()));
+    node.lock().unwrap().start();
+
     loop {
+		let node = Arc::clone(&node);
         let (stream, _) = listener.accept().await?;
 
         let client = Arc::clone(&rpc_client);
-        // Spawn a tokio task to serve multiple connections concurrently
         tokio::task::spawn(async move {
-            // Finally, we bind the incoming connection to our `hello` service
             if let Err(err) = http1::Builder::new()
-                // `service_fn` converts our function in a `Service`
-                .serve_connection(
-                    stream,
-                    FaucetSvc {
-                        rpc_client: client,
-                        sats_per_request,
-                    },
-                )
+                .serve_connection(stream, FaucetSvc::new(client, sats_per_request, node))
                 .await
             {
                 println!("Error serving connection: {:?}", err);
@@ -71,6 +77,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 struct FaucetSvc {
     rpc_client: Arc<Client>,
     sats_per_request: u64,
+    node: Arc<Mutex<Node>>,
+}
+
+impl FaucetSvc {
+    pub fn new(rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Mutex<Node>>) -> Self {
+        Self {
+            rpc_client,
+            sats_per_request,
+            node,
+        }
+    }
 }
 
 impl Service<Request<IncomingBody>> for FaucetSvc {
@@ -79,58 +96,69 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
     fn call(&mut self, req: Request<IncomingBody>) -> Self::Future {
-        fn mk_response(s: String) -> Result<Response<Full<Bytes>>, hyper::Error> {
-            Ok(Response::builder().body(Full::new(Bytes::from(s))).unwrap())
+        fn mk_response(s: String) -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
+            Box::pin(async { Ok(Response::builder().body(Full::new(Bytes::from(s))).unwrap()) })
         }
 
-        fn default_response() -> Result<Response<Full<Bytes>>, hyper::Error> {
-            Ok(Response::builder()
-                .body(Full::new(Bytes::from(
-                    "Try /faucet/BITCOIN_ADDRESS to get some regtest bitcoin!",
-                )))
-                .unwrap())
+        fn default_response() -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
+            mk_response("Try /faucet/BITCOIN_ADDRESS to get some regtest bitcoin!".to_string())
         }
 
-        let res = match (req.method(), req.uri().path()) {
-            (&Method::GET, "/") => default_response(),
-            (&Method::GET, get_str) => {
-                if get_str.len() < 55 {
-                    if get_str.starts_with("/faucet/") {
-                        match Address::from_str(&get_str[8..]) {
-                            Ok(addr) => {
-                                let amount = Amount::from_sat(self.sats_per_request);
-                                let rpc_res = self.rpc_client.send_to_address(
-                                    &addr, amount, None, None, None, None, None, None,
-                                );
-                                match rpc_res {
-                                    Ok(txid) => {
-                                        let msg = format!("OK: {}", txid);
-                                        println!("{}", msg);
-                                        mk_response(msg)
-                                    }
-                                    Err(err) => {
-                                        let msg =
-                                            format!("ERR: {} for request: \"{}|\"", err, get_str);
-                                        eprintln!("{}", msg);
-                                        mk_response(msg)
-                                    }
+        if req.method() != Method::GET {
+            return default_response();
+        }
+
+        let mut url_parts = req.uri().path().split('/').skip(1);
+        println!("url_parts: {:?}", url_parts.clone().collect::<Vec<_>>());
+        match url_parts.next() {
+            Some("faucet") => {
+                if let Some(addr_str) = url_parts.next() {
+                    match Address::from_str(&addr_str) {
+                        Ok(addr) => {
+                            let amount = Amount::from_sat(self.sats_per_request);
+                            let rpc_res = self
+                                .rpc_client
+                                .send_to_address(&addr, amount, None, None, None, None, None, None);
+                            match rpc_res {
+                                Ok(txid) => {
+                                    let msg = format!("OK: {}", txid);
+                                    println!("{}", msg);
+                                    return mk_response(msg);
+                                }
+                                Err(err) => {
+                                    let msg = format!(
+                                        "ERR: {} for request: \"{}\"",
+                                        err,
+                                        req.uri().path()
+                                    );
+                                    eprintln!("{}", msg);
+                                    return mk_response(msg);
                                 }
                             }
-                            Err(err) => {
-                                let msg = format!("ERR: {} for request: \"{}|\"", err, get_str);
-                                eprintln!("{}", msg);
-                                mk_response(msg)
-                            }
                         }
-                    } else {
-                        default_response()
+                        Err(err) => {
+                            let msg = format!("ERR: {} for request: \"{}\"", err, req.uri().path());
+                            eprintln!("{}", msg);
+                            return mk_response(msg);
+                        }
                     }
-                } else {
-                    default_response()
                 }
             }
-            _ => default_response(),
-        };
-        Box::pin(async { res })
+            Some("getnodeaddress") => {
+				let msg = format!("Node ID: {}", self.node.lock().unwrap().node_id().unwrap());
+				println!("{}", msg);
+				return mk_response(msg);
+			}
+            Some(path) => {
+                let msg = format!("ERR: Couldn't find path {}", path);
+                eprintln!("{}", msg);
+                return default_response();
+            }
+            None => {
+                return default_response();
+            }
+        }
+
+        default_response()
     }
 }
