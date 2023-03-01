@@ -4,6 +4,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::str::FromStr;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::SystemTime;
@@ -20,9 +22,9 @@ use bitcoincore_rpc::{Auth, Client, RpcApi};
 use hyper::Method;
 use tokio::net::TcpListener;
 
-use bitcoin::network::constants::Network;
 use bitcoin::hashes::Hash;
-use ldk_node::{Builder, Config, Node};
+use bitcoin::network::constants::Network;
+use ldk_node::{Builder, Config, Event, Node};
 use lightning::ln::PaymentHash;
 use lightning_invoice::Invoice;
 
@@ -60,12 +62,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let builder = Builder::from_config(config);
 
-    let node = Arc::new(Mutex::new(builder.build()));
-    let _ = node.lock().unwrap().start();
+    let node = Arc::new(builder.build());
+    node.start()?;
+
+    let node_ref = Arc::clone(&node);
+
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_ev = Arc::clone(&shutdown);
+
+    tokio::task::spawn(async move {
+        loop {
+            if shutdown_ev.load(Ordering::Relaxed) {
+                break;
+            }
+            let node = Arc::clone(&node_ref);
+            match node.next_event() {
+                Event::PaymentReceived {
+                    payment_hash,
+                    amount_msat,
+                } => {
+                    println!(
+                        "Received payment: {:?} of amount {}",
+                        payment_hash, amount_msat
+                    );
+                    node.event_handled();
+                }
+                e => {
+                    println!("Event: {:?}", e);
+                    node.event_handled();
+                }
+            }
+        }
+    });
 
     let passphrases = Arc::new(vec!["testasdf".to_string()]);
 
     loop {
+        if shutdown.load(Ordering::Relaxed) {
+            break;
+        }
         let node = Arc::clone(&node);
         let passphrases = Arc::clone(&passphrases);
         let (stream, _) = listener.accept().await?;
@@ -83,12 +118,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             }
         });
     }
+    shutdown.store(true, Ordering::SeqCst);
+    node.stop()?;
+    Ok(())
 }
 
 struct FaucetSvc {
     rpc_client: Arc<Client>,
     sats_per_request: u64,
-    node: Arc<Mutex<Node>>,
+    node: Arc<Node>,
     passphrases: Arc<Vec<String>>,
     paymenthash_tracking: Mutex<HashMap<PaymentHash, (String, SystemTime)>>,
     passphrase_to_invoice: Mutex<HashMap<String, Invoice>>,
@@ -98,7 +136,7 @@ impl FaucetSvc {
     pub fn new(
         rpc_client: Arc<Client>,
         sats_per_request: u64,
-        node: Arc<Mutex<Node>>,
+        node: Arc<Node>,
         passphrases: Arc<Vec<String>>,
     ) -> Self {
         let paymenthash_tracking = Mutex::new(HashMap::new());
@@ -108,7 +146,7 @@ impl FaucetSvc {
             sats_per_request,
             node,
             passphrases,
-			paymenthash_tracking,
+            paymenthash_tracking,
             passphrase_to_invoice,
         }
     }
@@ -179,8 +217,6 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                         } else {
                             let invoice = self
                                 .node
-                                .lock()
-                                .unwrap()
                                 .receive_payment(Some(10000000), &passphrase, 7200)
                                 .unwrap();
                             invoice_map.insert(passphrase.clone(), invoice.clone());
@@ -198,7 +234,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                 }
             }
             Some("getnodeaddress") => {
-                let msg = format!("Node ID: {}", self.node.lock().unwrap().node_id().unwrap());
+                let msg = format!("Node ID: {}", self.node.node_id().unwrap());
                 println!("{}", msg);
                 return mk_response(msg);
             }
