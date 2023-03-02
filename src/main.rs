@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
-    let passphrases = Arc::new(vec!["testasdf".to_string()]);
+    let passphrases = Arc::new(vec!["testasdf".to_string(), "hiconor".to_string()]);
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
@@ -238,6 +238,22 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                             );
                             invoice
                         };
+
+                        let payment_hash = PaymentHash(invoice.payment_hash().into_inner());
+                        if let Some(finish_time) =
+                            self.paid_hashes.lock().unwrap().get(&payment_hash)
+                        {
+                            if let Some((_, start_time)) = paymenthash_map.get(&payment_hash) {
+                                if let Ok(time_diff) = finish_time.duration_since(*start_time) {
+                                    let msg = format!(
+                                        "DONE! You paid the invoice in {} seconds!",
+                                        time_diff.as_secs()
+                                    );
+                                    println!("{}", msg);
+                                    return mk_response(msg);
+                                }
+                            }
+                        }
 
                         let msg = format!("Hi {}! Please pay invoice: {}", passphrase, invoice);
                         println!("{}", msg);
