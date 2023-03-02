@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::env;
+use std::fs::File;
 use std::future::Future;
+use std::io::BufRead;
+use std::io::BufReader;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -44,6 +47,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let rpc_url = &args[3];
     let esplora_url = &args[4];
     let cookie_file_path = &args[5];
+
+    let file = File::open("./passphrases.txt")?;
+    let reader = BufReader::new(file);
+    let passphrases = Arc::new(
+        reader
+            .lines()
+            .map(|l| l.expect("Could not parse line"))
+            .collect::<Vec<_>>(),
+    );
 
     let addr: SocketAddr = listening_address
         .parse()
@@ -106,7 +118,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     let paymenthash_tracking = Arc::new(Mutex::new(HashMap::new()));
     let passphrase_to_invoice = Arc::new(Mutex::new(HashMap::new()));
-    let passphrases = Arc::new(vec!["testasdf".to_string(), "hiconor".to_string()]);
 
     loop {
         if shutdown.load(Ordering::Relaxed) {
