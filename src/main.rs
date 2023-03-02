@@ -194,12 +194,12 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 
         fn default_response() -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
             let msg = format!(
-                "Usage:<br>
-	&#09;/getsats/BITCOIN_ADDRESS &Tab;...to get some sats<br>
-	&#09;;/getinvoice/PASSPHRASE &Tab;...to start the challenge<br>
-	&#09;/getchannel/NODE_ID@IP_ADDR:PORT &Tab;...to have a channel opened to you<br>
-	&#09;/getnodeid &Tab;...to get the faucet's node id<br>
-	&#09;/getfundingaddress &Tab;...to get the faucet's funding address"
+                "<pre>Usage:
+	/getsats/BITCOIN_ADDRESS &Tab;...to get some sats
+	/getinvoice/PASSPHRASE &Tab;...to start the challenge
+	/getchannel/NODE_ID@IP_ADDR:PORT &Tab;...to have a channel opened to you
+	/getnodeid &Tab;...to get the faucet's node id
+	/getfundingaddress &Tab;...to get the faucet's funding address<pre>"
             );
             mk_response(msg)
         }
