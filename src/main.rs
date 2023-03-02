@@ -299,7 +299,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                             }
                         }
 
-                        let msg = format!("Hi {}! Please pay invoice: {}", passphrase, invoice);
+                        let msg = format!("Hi {}! Please pay this invoice as quickly as possible:<br><br>{}", passphrase, invoice);
                         println!("{}", msg);
                         return mk_response(msg);
                     }
@@ -313,7 +313,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                         .is_ok()
                     {
                         let msg = format!(
-                            "Opening channel of {} to: {}",
+                            "Opening channel of {}sat to: {}",
                             self.sats_per_request, node_address
                         );
                         println!("{}", msg);
