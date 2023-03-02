@@ -302,8 +302,13 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                     }
                 }
             }
-            Some("getnodeaddress") => {
-                let msg = format!("Node ID: {}", self.node.node_id().unwrap());
+            Some("getfundingaddress") => {
+                let msg = format!("{}", self.node.new_funding_address().unwrap());
+                println!("{}", msg);
+                return mk_response(msg);
+            }
+            Some("getnodeid") => {
+                let msg = format!("{}", self.node.node_id().unwrap());
                 println!("{}", msg);
                 return mk_response(msg);
             }
