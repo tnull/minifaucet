@@ -193,7 +193,15 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
         }
 
         fn default_response() -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
-            mk_response("Try /faucet/BITCOIN_ADDRESS to get some regtest bitcoin!".to_string())
+            let msg = format!(
+                "Usage:<br>
+				&Tab;/getsats/BITCOIN_ADDRESS &Tab;...to get some sats<br>
+				&Tab;/getinvoice/PASSPHRASE &Tab;...to start the challenge<br>
+				&Tab;/getchannel/NODE_ID@IP_ADDR:PORT &Tab;...to have a channel opened to you<br>
+				&Tab;/getnodeid &Tab;...to get the faucet's node id<br>
+				&Tab;/getfundingaddress &Tab;...to get the faucet's funding address"
+            );
+            mk_response(msg)
         }
 
         if req.method() != Method::GET {
@@ -203,7 +211,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
         let mut url_parts = req.uri().path().split('/').skip(1);
         println!("url_parts: {:?}", url_parts.clone().collect::<Vec<_>>());
         match url_parts.next() {
-            Some("faucet") => {
+            Some("getsats") => {
                 if let Some(addr_str) = url_parts.next() {
                     match Address::from_str(&addr_str) {
                         Ok(addr) => {
