@@ -228,17 +228,23 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                     let passphrase = passphrase.to_string();
                     if self.passphrases.contains(&passphrase) {
                         let invoice = if let Some(invoice) = invoice_map.get(&passphrase) {
+                            println!("GOT INVOICE: {:?}", invoice);
                             invoice.clone()
                         } else {
                             let invoice = self
                                 .node
                                 .receive_payment(Some(10000000), &passphrase, 7200)
                                 .unwrap();
-                            invoice_map.insert(passphrase.clone(), invoice.clone());
-                            paymenthash_map.insert(
-                                PaymentHash(invoice.payment_hash().clone().into_inner()),
-                                (passphrase.clone(), SystemTime::now()),
-                            );
+                            println!("SET INVOICE: {:?}", invoice);
+                            assert!(invoice_map
+                                .insert(passphrase.clone(), invoice.clone())
+                                .is_none());
+                            assert!(paymenthash_map
+                                .insert(
+                                    PaymentHash(invoice.payment_hash().clone().into_inner()),
+                                    (passphrase.clone(), SystemTime::now()),
+                                )
+                                .is_none());
                             invoice
                         };
 
