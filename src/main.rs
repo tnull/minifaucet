@@ -210,7 +210,8 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 	/getinvoice/PASSPHRASE			...to start the challenge
 	/getchannel/NODE_ID@IP_ADDR:PORT	...to have a channel opened to you
 	/getnodeid				...to get the faucet's node id
-	/getfundingaddress			...to get the faucet's funding address<pre>"
+	/getfundingaddress			...to get the faucet's funding address
+	/getleaderboard				... to show the leaderboard</pre>"
             );
             mk_response(msg)
         }
