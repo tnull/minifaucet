@@ -348,7 +348,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                 }
                 leaderboard.sort_by(|a, b| a.1.cmp(&b.1));
 
-                let mut msg = "<center><meta http-equiv=\"refresh\" content=\"5\" /><table style=\"border:1px solid black;margin-left:auto;margin-right:auto;\"><tr><th>Passphrase </th><th>Time</th></tr>".to_string();
+                let mut msg = "<center><meta http-equiv=\"refresh\" content=\"5\" /><table style=\"border:1px solid black;margin-left:auto;margin-right:auto; th, td { padding: 15px; }\"><tr><th>Passphrase</th><th>Time</th></tr>".to_string();
                 for (passphrase, time_diff) in leaderboard {
                     let row = format!(
                         "<tr><td>{}</td><td>{}</td>",
