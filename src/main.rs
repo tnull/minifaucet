@@ -59,7 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut config = Config::default();
     config.esplora_server_url = esplora_url.to_string();
     config.network = Network::Regtest;
-	config.listening_address = Some("0.0.0.0:9736".to_string());
+    config.listening_address = Some("0.0.0.0:9736".to_string());
 
     let builder = Builder::from_config(config);
 
@@ -220,11 +220,11 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                 }
             }
             Some("getinvoice") => {
+                let mut invoice_map = self.passphrase_to_invoice.lock().unwrap();
+                let mut paymenthash_map = self.paymenthash_tracking.lock().unwrap();
                 if let Some(passphrase) = url_parts.next() {
                     let passphrase = passphrase.to_string();
                     if self.passphrases.contains(&passphrase) {
-                        let mut invoice_map = self.passphrase_to_invoice.lock().unwrap();
-                        let mut paymenthash_map = self.paymenthash_tracking.lock().unwrap();
                         let invoice = if let Some(invoice) = invoice_map.get(&passphrase) {
                             invoice.clone()
                         } else {
