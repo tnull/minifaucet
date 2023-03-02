@@ -345,7 +345,20 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                         }
                     }
                 }
-                leaderboard.sort_by(|a, b| b.1.cmp(&a.1));
+                leaderboard.sort_by(|a, b| a.1.cmp(&b.1));
+
+                let mut msg = "<center><table style=\"border:1px solid black;margin-left:auto;margin-right:auto;\"><tr><th>Passphrase</th><th>Time (s)</th></tr>".to_string();
+                for (passphrase, time_diff) in leaderboard {
+                    let row = format!(
+                        "<tr><td>{}</td><td>{}</td>",
+                        passphrase,
+                        time_diff.as_secs()
+                    );
+                    msg += &row;
+                }
+                msg += "</table></center>";
+                println!("{}", msg);
+                return mk_response(msg);
             }
             Some(path) => {
                 let msg = format!("ERR: Couldn't find path {}", path);
