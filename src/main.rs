@@ -184,7 +184,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 
     fn call(&mut self, req: Request<IncomingBody>) -> Self::Future {
         fn mk_response(s: String) -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
-            let msg = format!("<html><style>.body { font-family: "Lucida Console", "Courier New", monospace; } </style><head></head><body>{}</body></html>", s);
+            let msg = format!("<html><style>.body {{ font-family: \"Lucida Console\", \"Courier New\", monospace; }}</style><head></head><body>{}</body></html>", s);
             Box::pin(async {
                 Ok(Response::builder()
                     .body(Full::new(Bytes::from(msg)))
