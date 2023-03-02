@@ -223,6 +223,8 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                 let mut invoice_map = self.passphrase_to_invoice.lock().unwrap();
                 let mut paymenthash_map = self.paymenthash_tracking.lock().unwrap();
                 if let Some(passphrase) = url_parts.next() {
+                    let pass = format!("{}", passphrase);
+                    println!("PASS: {:?}", pass);
                     let passphrase = passphrase.to_string();
                     if self.passphrases.contains(&passphrase) {
                         let invoice = if let Some(invoice) = invoice_map.get(&passphrase) {
