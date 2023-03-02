@@ -184,7 +184,12 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 
     fn call(&mut self, req: Request<IncomingBody>) -> Self::Future {
         fn mk_response(s: String) -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
-            Box::pin(async { Ok(Response::builder().body(Full::new(Bytes::from(s))).unwrap()) })
+            let msg = format!("<html><head></head><body>{}</body></html>", s);
+            Box::pin(async {
+                Ok(Response::builder()
+                    .body(Full::new(Bytes::from(msg)))
+                    .unwrap())
+            })
         }
 
         fn default_response() -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
@@ -240,14 +245,13 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                     let passphrase = passphrase.to_string();
                     if self.passphrases.contains(&passphrase) {
                         let invoice = if let Some(invoice) = invoice_map.get(&passphrase) {
-                            println!("GOT INVOICE: {:?}", invoice);
                             invoice.clone()
                         } else {
                             let invoice = self
                                 .node
                                 .receive_payment(Some(10000000), &passphrase, 7200)
                                 .unwrap();
-                            println!("SET INVOICE: {:?}", invoice);
+                            println!("Generated invoice with hash: {}", invoice.payment_hash());
                             assert!(invoice_map
                                 .insert(passphrase.clone(), invoice.clone())
                                 .is_none());
@@ -277,6 +281,22 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                         }
 
                         let msg = format!("Hi {}! Please pay invoice: {}", passphrase, invoice);
+                        println!("{}", msg);
+                        return mk_response(msg);
+                    }
+                }
+            }
+            Some("getchannel") => {
+                if let Some(node_address) = url_parts.next() {
+                    if self
+                        .node
+                        .connect_open_channel(node_address, self.sats_per_request, true)
+                        .is_ok()
+                    {
+                        let msg = format!(
+                            "Opening channel of {} to: {}",
+                            self.sats_per_request, node_address
+                        );
                         println!("{}", msg);
                         return mk_response(msg);
                     }
