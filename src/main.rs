@@ -59,6 +59,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let mut config = Config::default();
     config.esplora_server_url = esplora_url.to_string();
     config.network = Network::Regtest;
+	config.listening_address = Some("0.0.0.0:9736".to_string());
 
     let builder = Builder::from_config(config);
 
