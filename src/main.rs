@@ -299,7 +299,10 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                             }
                         }
 
-                        let msg = format!("Hi {}! Please pay this invoice as quickly as possible:<br><br>{}", passphrase, invoice);
+                        let msg = format!(
+                            "Hi {}! Please pay this invoice as quickly as possible:<br><br>{}",
+                            passphrase, invoice
+                        );
                         println!("{}", msg);
                         return mk_response(msg);
                     }
@@ -330,6 +333,19 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                 let msg = format!("{}", self.node.node_id().unwrap());
                 println!("{}", msg);
                 return mk_response(msg);
+            }
+            Some("getleaderboard") => {
+                let mut leaderboard = Vec::new();
+                let paid_hashes_map = self.paid_hashes.lock().unwrap();
+                let paymenthash_map = self.paymenthash_tracking.lock().unwrap();
+                for (payment_hash, finish_time) in paid_hashes_map.iter() {
+                    if let Some((passphrase, start_time)) = paymenthash_map.get(&payment_hash) {
+                        if let Ok(time_diff) = finish_time.duration_since(*start_time) {
+                            leaderboard.push((passphrase, time_diff));
+                        }
+                    }
+                }
+                leaderboard.sort_by(|a, b| b.1.cmp(&a.1));
             }
             Some(path) => {
                 let msg = format!("ERR: Couldn't find path {}", path);
