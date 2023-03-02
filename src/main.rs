@@ -195,11 +195,11 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
         fn default_response() -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
             let msg = format!(
                 "<pre>Usage:
-	/getsats/BITCOIN_ADDRESS &Tab;...to get some sats
-	/getinvoice/PASSPHRASE &Tab;...to start the challenge
-	/getchannel/NODE_ID@IP_ADDR:PORT &Tab;...to have a channel opened to you
-	/getnodeid &Tab;...to get the faucet's node id
-	/getfundingaddress &Tab;...to get the faucet's funding address<pre>"
+	/getsats/BITCOIN_ADDRESS		...to get some sats
+	/getinvoice/PASSPHRASE		...to start the challenge
+	/getchannel/NODE_ID@IP_ADDR:PORT		...to have a channel opened to you
+	/getnodeid		...to get the faucet's node id
+	/getfundingaddress		...to get the faucet's funding address<pre>"
             );
             mk_response(msg)
         }
