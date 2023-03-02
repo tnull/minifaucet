@@ -104,6 +104,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     });
 
+    let paymenthash_tracking = Arc::new(Mutex::new(HashMap::new()));
+    let passphrase_to_invoice = Arc::new(Mutex::new(HashMap::new()));
     let passphrases = Arc::new(vec!["testasdf".to_string(), "hiconor".to_string()]);
 
     loop {
@@ -113,6 +115,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let node = Arc::clone(&node);
         let passphrases = Arc::clone(&passphrases);
         let paid_hashes = Arc::clone(&paid_hashes);
+        let passphrase_to_invoice = Arc::clone(&passphrase_to_invoice);
+        let paymenthash_tracking = Arc::clone(&paymenthash_tracking);
         let (stream, _) = listener.accept().await?;
 
         let client = Arc::clone(&rpc_client);
@@ -120,7 +124,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             if let Err(err) = http1::Builder::new()
                 .serve_connection(
                     stream,
-                    FaucetSvc::new(client, sats_per_request, node, passphrases, paid_hashes),
+                    FaucetSvc::new(
+                        client,
+                        sats_per_request,
+                        node,
+                        passphrases,
+                        paid_hashes,
+                        passphrase_to_invoice,
+                        paymenthash_tracking,
+                    ),
                 )
                 .await
             {
@@ -138,8 +150,8 @@ struct FaucetSvc {
     sats_per_request: u64,
     node: Arc<Node>,
     passphrases: Arc<Vec<String>>,
-    paymenthash_tracking: Mutex<HashMap<PaymentHash, (String, SystemTime)>>,
-    passphrase_to_invoice: Mutex<HashMap<String, Invoice>>,
+    paymenthash_tracking: Arc<Mutex<HashMap<PaymentHash, (String, SystemTime)>>>,
+    passphrase_to_invoice: Arc<Mutex<HashMap<String, Invoice>>>,
     paid_hashes: Arc<Mutex<HashMap<PaymentHash, SystemTime>>>,
 }
 
@@ -150,9 +162,9 @@ impl FaucetSvc {
         node: Arc<Node>,
         passphrases: Arc<Vec<String>>,
         paid_hashes: Arc<Mutex<HashMap<PaymentHash, SystemTime>>>,
+        paymenthash_tracking: Arc<Mutex<HashMap<PaymentHash, (String, SystemTime)>>>,
+        passphrase_to_invoice: Arc<Mutex<HashMap<String, Invoice>>>,
     ) -> Self {
-        let paymenthash_tracking = Mutex::new(HashMap::new());
-        let passphrase_to_invoice = Mutex::new(HashMap::new());
         Self {
             rpc_client,
             sats_per_request,
