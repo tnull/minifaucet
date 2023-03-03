@@ -301,7 +301,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                         }
 
                         let msg = format!(
-                            "Hi {}! Please pay this invoice as quickly as possible:<br><br>{}",
+                            "<meta http-equiv=\"refresh\" content=\"5\" />Hi {}! Please pay this invoice as quickly as possible:<br><br>{}",
                             passphrase, invoice
                         );
                         println!("{}", msg);
@@ -348,7 +348,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
                 }
                 leaderboard.sort_by(|a, b| a.1.cmp(&b.1));
 
-                let mut msg = "<center><meta http-equiv=\"refresh\" content=\"5\" /><table style=\"margin-left:auto;margin-right:auto;text-align: center;\"><tr style=\"border-bottom: 1px solid black\"><th style=\"padding: 10px\">Passphrase</th><th style=\"padding:10px\">Time</th></tr>".to_string();
+                let mut msg = "<center><meta http-equiv=\"refresh\" content=\"5\" /><table style=\"margin-left:auto;margin-right:auto;text-align: center;\"><tr style=\"border-bottom: 1px solid black\"><th style=\"padding: 10px\">Passphrase</th><th style=\"padding:10px\">Time (sec.)</th></tr>".to_string();
                 for (passphrase, time_diff) in leaderboard {
                     let row = format!(
                         "<tr><td style=\"padding: 10px\">{}</td><td style=\"padding: 10px\">{}</td>",
