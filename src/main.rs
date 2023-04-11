@@ -318,7 +318,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 						.connect_open_channel(
 							node_address,
 							self.sats_per_request,
-							Some(self.sats_per_request / 2),
+							Some(self.sats_per_request * 1000 / 2),
 							true,
 						)
 						.is_ok()
