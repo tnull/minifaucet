@@ -11,3 +11,6 @@ tokio = { version = "1", features = ["full"] }
 http-body-util = "0.1.0-rc.2"
 bitcoincore-rpc = "0.16.0"
 bitcoin = "0.29.2"
+ldk-node = { git = "https://github.com/tnull/ldk-node.git", branch = "2023-04-push-msat" }
+lightning = { git = "https://github.com/lightningdevkit/rust-lightning", rev="7b85ebadb64058127350b83fb4b76dcb409ea518", features = ["max_level_trace", "std"] }
+lightning-invoice = { git = "https://github.com/lightningdevkit/rust-lightning", rev="7b85ebadb64058127350b83fb4b76dcb409ea518" }
