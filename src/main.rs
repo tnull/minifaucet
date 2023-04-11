@@ -315,7 +315,12 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 				if let Some(node_address) = url_parts.next() {
 					if self
 						.node
-						.connect_open_channel(node_address, self.sats_per_request, true)
+						.connect_open_channel(
+							node_address,
+							self.sats_per_request,
+							Some(self.sats_per_request / 2),
+							true,
+						)
 						.is_ok()
 					{
 						let msg = format!(
