@@ -313,22 +313,24 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 			}
 			Some("getchannel") => {
 				if let Some(node_address) = url_parts.next() {
-					if self
-						.node
-						.connect_open_channel(
-							node_address,
-							self.sats_per_request,
-							Some(self.sats_per_request * 1000 / 2),
-							true,
-						)
-						.is_ok()
-					{
-						let msg = format!(
-							"Opening channel of {}sat to: {}",
-							self.sats_per_request, node_address
-						);
-						println!("{}", msg);
-						return mk_response(msg);
+					match self.node.connect_open_channel(
+						node_address,
+						self.sats_per_request,
+						Some(self.sats_per_request * 1000 / 2),
+						true,
+					) {
+						Ok(_) => {
+							let msg = format!(
+								"Opening channel of {}sat to: {}",
+								self.sats_per_request, node_address
+							);
+							println!("{}", msg);
+							return mk_response(msg);
+						}
+						Err(e) => {
+							let msg = format!("ERR: Channel open failed: {:?}", e);
+							eprintln!("{}", msg);
+						}
 					}
 				}
 			}
