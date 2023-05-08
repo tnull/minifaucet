@@ -1,6 +1,7 @@
 use std::collections::hash_map;
 use std::collections::HashMap;
 use std::env;
+use std::fmt::Write;
 use std::fs::File;
 use std::future::Future;
 use std::io::BufRead;
@@ -169,6 +170,9 @@ impl UserState {
 		if let UserState::CreatedInvoice { invoice, time_created: _ } = self {
 			return Some(invoice);
 		}
+		if let UserState::PaidInvoice { invoice, time_created: _, time_paid: _ } = self {
+			return Some(invoice);
+		}
 		None
 	}
 
@@ -211,11 +215,12 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 			let msg = format!(
 				"<pre>Usage:
 	/getsats/BITCOIN_ADDRESS		... to get some sats
-	/getinvoice/PASSPHRASE			... to start the challenge
+	/getinvoice/PASSPHRASE			... to get a payable invoice and start the challenge
 	/getchannel/NODE_ID@IP_ADDR:PORT	... to have a channel opened to you
 	/getnodeid				... to get the faucet's node id
 	/getfundingaddress			... to get the faucet's funding address
-	/getleaderboard				... to show the leaderboard</pre>"
+	/getleaderboard				... to show the leaderboard
+	/payinvoice/INVOICE			... to have the faucet pay an invoice (e.g., to balance a channel)</pre>"
 			);
 			mk_response(msg)
 		}
@@ -262,8 +267,6 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 			}
 			Some("getinvoice") => {
 				let mut users = self.users.lock().unwrap();
-				//let mut invoice_map = self.passphrase_to_invoice.lock().unwrap();
-				//let mut paymenthash_map = self.paymenthash_tracking.lock().unwrap();
 				if let Some(passphrase) = url_parts.next() {
 					let pass = format!("{}", passphrase);
 					println!("PASS: {:?}", pass);
@@ -367,6 +370,31 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 				println!("{}", msg);
 				return mk_response(msg);
 			}
+			Some("payinvoice") => {
+				//let users = self.users.lock().unwrap();
+				if let Some(raw_invoice) = url_parts.next() {
+					if let Ok(invoice) = Invoice::from_str(raw_invoice) {
+						//for (_, user) in users.iter_mut() {
+						//	if let Some(invoice) = user.invoice() {
+						//		// Return so we don't pay our own invoices.
+						//		if invoice.payment_hash().into_inner() == payment_hash.0 {
+						//			return default_response();
+						//		}
+						//	}
+						//}
+						let msg = match self.node.send_payment(&invoice) {
+							Ok(payment_hash) => format!(
+								"Paying invoice with hash: {}",
+								bytes_to_hex(&payment_hash.0)
+							),
+							Err(e) => format!("Failed to pay invoice: {}", e),
+						};
+						println!("{}", msg);
+						return mk_response(msg);
+					}
+				}
+				return default_response();
+			}
 			Some(path) => {
 				let msg = format!("ERR: Couldn't find path {}", path);
 				eprintln!("{}", msg);
@@ -376,7 +404,6 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 				return default_response();
 			}
 		}
-
 		default_response()
 	}
 }
@@ -427,4 +454,13 @@ fn hex_to_vec(hex: &str) -> Option<Vec<u8>> {
 	}
 
 	Some(out)
+}
+
+#[inline]
+fn bytes_to_hex(value: &[u8]) -> String {
+	let mut res = String::with_capacity(2 * value.len());
+	for v in value {
+		write!(&mut res, "{:02x}", v).expect("Unable to write");
+	}
+	res
 }
