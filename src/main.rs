@@ -371,17 +371,21 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 				return mk_response(msg);
 			}
 			Some("payinvoice") => {
-				//let users = self.users.lock().unwrap();
+				let users = self.users.lock().unwrap();
 				if let Some(raw_invoice) = url_parts.next() {
 					if let Ok(invoice) = Invoice::from_str(raw_invoice) {
-						//for (_, user) in users.iter_mut() {
-						//	if let Some(invoice) = user.invoice() {
-						//		// Return so we don't pay our own invoices.
-						//		if invoice.payment_hash().into_inner() == payment_hash.0 {
-						//			return default_response();
-						//		}
-						//	}
-						//}
+						for (_, user) in users.iter() {
+							if let Some(known_invoice) = user.invoice() {
+								// Return so we don't pay our own invoices.
+								if invoice.payment_hash().into_inner()
+									== known_invoice.payment_hash().into_inner()
+								{
+									let msg = format!("Won't pay my own invoices!");
+									println!("{}", msg);
+									return mk_response(msg);
+								}
+							}
+						}
 						let msg = match self.node.send_payment(&invoice) {
 							Ok(payment_hash) => format!(
 								"Paying invoice with hash: {}",
