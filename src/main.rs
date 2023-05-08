@@ -6,6 +6,7 @@ use std::future::Future;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
@@ -21,6 +22,7 @@ use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
 
+use bitcoin::secp256k1::PublicKey;
 use bitcoin::util::address::Address;
 use bitcoin::Amount;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
@@ -72,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let mut config = Config::default();
 	config.esplora_server_url = esplora_url.to_string();
 	config.network = Network::Regtest;
-	config.listening_address = Some("0.0.0.0:9736".to_string());
+	config.listening_address = Some("0.0.0.0:9736".parse().unwrap());
 
 	let builder = Builder::from_config(config);
 
@@ -111,19 +113,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 					node.event_handled();
 				}
 			}
-		}
-	});
-
-	let node_ref = Arc::clone(&node);
-	let shutdown_sync = Arc::clone(&shutdown);
-	tokio::task::spawn(async move {
-		loop {
-			if shutdown_sync.load(Ordering::Relaxed) {
-				break;
-			}
-			let node = Arc::clone(&node_ref);
-			let _ = node.sync_wallets();
-			tokio::time::sleep(Duration::from_secs(15)).await;
 		}
 	});
 
@@ -221,11 +210,11 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 		fn default_response() -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
 			let msg = format!(
 				"<pre>Usage:
-	/getsats/BITCOIN_ADDRESS		...to get some sats
-	/getinvoice/PASSPHRASE			...to start the challenge
-	/getchannel/NODE_ID@IP_ADDR:PORT	...to have a channel opened to you
-	/getnodeid				...to get the faucet's node id
-	/getfundingaddress			...to get the faucet's funding address
+	/getsats/BITCOIN_ADDRESS		... to get some sats
+	/getinvoice/PASSPHRASE			... to start the challenge
+	/getchannel/NODE_ID@IP_ADDR:PORT	... to have a channel opened to you
+	/getnodeid				... to get the faucet's node id
+	/getfundingaddress			... to get the faucet's funding address
 	/getleaderboard				... to show the leaderboard</pre>"
 			);
 			mk_response(msg)
@@ -313,23 +302,34 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 			}
 			Some("getchannel") => {
 				if let Some(node_address) = url_parts.next() {
-					match self.node.connect_open_channel(
-						node_address,
-						self.sats_per_request,
-						Some(self.sats_per_request * 1000 / 2),
-						true,
-					) {
-						Ok(_) => {
-							let msg = format!(
-								"Opening channel of {}sat to: {}",
-								self.sats_per_request, node_address
-							);
-							println!("{}", msg);
-							return mk_response(msg);
+					match convert_peer_info(node_address) {
+						Ok((pubkey, addr)) => {
+							match self.node.connect_open_channel(
+								pubkey,
+								addr,
+								self.sats_per_request,
+								Some(self.sats_per_request * 1000 / 2),
+								true,
+							) {
+								Ok(_) => {
+									let msg = format!(
+										"Opening channel of {}sat to: {}",
+										self.sats_per_request, node_address
+									);
+									println!("{}", msg);
+									return mk_response(msg);
+								}
+								Err(e) => {
+									let msg = format!("ERR: Channel open failed: {:?}", e);
+									eprintln!("{}", msg);
+									return mk_response(msg);
+								}
+							}
 						}
-						Err(e) => {
-							let msg = format!("ERR: Channel open failed: {:?}", e);
+						Err(()) => {
+							let msg = format!("ERR: Failed to parse peer info: {}", node_address);
 							eprintln!("{}", msg);
+							return mk_response(msg);
 						}
 					}
 				}
@@ -379,4 +379,52 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 
 		default_response()
 	}
+}
+
+pub fn convert_peer_info(peer_pubkey_and_ip_addr: &str) -> Result<(PublicKey, SocketAddr), ()> {
+	if let Some((pubkey_str, peer_str)) = peer_pubkey_and_ip_addr.split_once('@') {
+		if let Some(pubkey) = hex_to_compressed_pubkey(pubkey_str) {
+			if let Some(peer_addr) =
+				peer_str.to_socket_addrs().ok().and_then(|mut r| r.next()).map(|pa| pa)
+			{
+				return Ok((pubkey, peer_addr));
+			}
+		}
+	}
+	Err(())
+}
+
+fn hex_to_compressed_pubkey(hex: &str) -> Option<PublicKey> {
+	if hex.len() != 33 * 2 {
+		return None;
+	}
+	let data = match hex_to_vec(&hex[0..33 * 2]) {
+		Some(bytes) => bytes,
+		None => return None,
+	};
+	match PublicKey::from_slice(&data) {
+		Ok(pk) => Some(pk),
+		Err(_) => None,
+	}
+}
+
+fn hex_to_vec(hex: &str) -> Option<Vec<u8>> {
+	let mut out = Vec::with_capacity(hex.len() / 2);
+
+	let mut b = 0;
+	for (idx, c) in hex.as_bytes().iter().enumerate() {
+		b <<= 4;
+		match *c {
+			b'A'..=b'F' => b |= c - b'A' + 10,
+			b'a'..=b'f' => b |= c - b'a' + 10,
+			b'0'..=b'9' => b |= c - b'0',
+			_ => return None,
+		}
+		if (idx & 1) == 1 {
+			out.push(b);
+			b = 0;
+		}
+	}
+
+	Some(out)
 }
