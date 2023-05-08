@@ -116,19 +116,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		}
 	});
 
-	let node_ref = Arc::clone(&node);
-	let shutdown_sync = Arc::clone(&shutdown);
-	tokio::task::spawn(async move {
-		loop {
-			if shutdown_sync.load(Ordering::Relaxed) {
-				break;
-			}
-			let node = Arc::clone(&node_ref);
-			let _ = node.sync_wallets();
-			tokio::time::sleep(Duration::from_secs(15)).await;
-		}
-	});
-
 	loop {
 		if shutdown.load(Ordering::Relaxed) {
 			break;
