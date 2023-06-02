@@ -7,7 +7,6 @@ use std::future::Future;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::net::SocketAddr;
-use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
@@ -32,7 +31,8 @@ use tokio::net::TcpListener;
 
 use bitcoin::hashes::Hash;
 use bitcoin::network::constants::Network;
-use ldk_node::{Builder, Config, Event, Node};
+use ldk_node::io::FilesystemStore;
+use ldk_node::{Builder, Config, Event, NetAddress, Node};
 use lightning_invoice::Invoice;
 
 #[tokio::main]
@@ -73,13 +73,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	);
 
 	let mut config = Config::default();
-	config.esplora_server_url = esplora_url.to_string();
 	config.network = Network::Regtest;
 	config.listening_address = Some("0.0.0.0:9736".parse().unwrap());
 
 	let builder = Builder::from_config(config);
+	builder.set_esplora_server(esplora_url.clone());
 
-	let node = Arc::new(builder.build());
+	let node = builder.build();
 	node.start()?;
 
 	let node_ref = Arc::clone(&node);
@@ -96,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 			}
 			let node = Arc::clone(&node_ref);
 			let users = Arc::clone(&users_ref);
-			match node.next_event() {
+			match node.wait_next_event() {
 				Event::PaymentReceived { payment_hash, amount_msat } => {
 					println!("Received payment: {:?} of amount {}", payment_hash, amount_msat);
 					let mut users = users.lock().unwrap();
@@ -187,13 +187,13 @@ impl UserState {
 struct FaucetSvc {
 	rpc_client: Arc<Client>,
 	sats_per_request: u64,
-	node: Arc<Node>,
+	node: Arc<Node<FilesystemStore>>,
 	users: Arc<Mutex<HashMap<String, UserState>>>,
 }
 
 impl FaucetSvc {
 	pub fn new(
-		rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Node>,
+		rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Node<FilesystemStore>>,
 		users: Arc<Mutex<HashMap<String, UserState>>>,
 	) -> Self {
 		Self { rpc_client, sats_per_request, node, users }
@@ -412,14 +412,11 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 	}
 }
 
-pub fn convert_peer_info(peer_pubkey_and_ip_addr: &str) -> Result<(PublicKey, SocketAddr), ()> {
+pub fn convert_peer_info(peer_pubkey_and_ip_addr: &str) -> Result<(PublicKey, NetAddress), ()> {
 	if let Some((pubkey_str, peer_str)) = peer_pubkey_and_ip_addr.split_once('@') {
 		if let Some(pubkey) = hex_to_compressed_pubkey(pubkey_str) {
-			if let Some(peer_addr) =
-				peer_str.to_socket_addrs().ok().and_then(|mut r| r.next()).map(|pa| pa)
-			{
-				return Ok((pubkey, peer_addr));
-			}
+			let peer_addr = peer_str.parse().map_err(|_| ())?;
+			return Ok((pubkey, peer_addr));
 		}
 	}
 	Err(())

@@ -11,6 +11,8 @@ tokio = { version = "1", features = ["full"] }
 http-body-util = "0.1.0-rc.2"
 bitcoincore-rpc = "0.16.0"
 bitcoin = "0.29.2"
-ldk-node = "0.1.0-alpha"
+#ldk-node = "0.1.0-alpha"
+ldk-node = { git = "https://github.com/lightningdevkit/ldk-node", rev = "427e74ccae94f260fbf12a36a20c8bcf2a51bab3" }
+
 lightning = { version = "0.0.115", features = ["max_level_trace", "std"] }
 lightning-invoice = { version = "0.23" }
