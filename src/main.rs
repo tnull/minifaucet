@@ -2,10 +2,7 @@ use std::collections::hash_map;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Write;
-use std::fs::File;
 use std::future::Future;
-use std::io::BufRead;
-use std::io::BufReader;
 use std::net::SocketAddr;
 use std::pin::Pin;
 use std::str::FromStr;
@@ -21,6 +18,7 @@ use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use rand::seq::SliceRandom;
 
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::util::address::Address;
@@ -52,16 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let esplora_url = &args[4];
 	let cookie_file_path = &args[5];
 
-	let file = File::open("./passphrases.txt")?;
-	let reader = BufReader::new(file);
+	let wordlist = Arc::new(read_wordlist("./bip39-wordlist.txt").expect("Couldn't read wordlist"));
 
-	let users = Arc::new(Mutex::new(HashMap::new()));
-	{
-		let mut user_lock = users.lock().unwrap();
-		for l in reader.lines().map(|l| l.expect("Could not parse line")) {
-			user_lock.insert(l, UserState::New);
-		}
-	}
+	let users: Arc<Mutex<HashMap<String, UserState>>> = Arc::new(Mutex::new(HashMap::new()));
 
 	let addr: SocketAddr = listening_address.parse().expect("Couldn't parse listening address");
 
@@ -126,9 +117,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		let (stream, _) = listener.accept().await?;
 
 		let client = Arc::clone(&rpc_client);
+		let wordlist = Arc::clone(&wordlist);
 		tokio::task::spawn(async move {
 			if let Err(err) = http1::Builder::new()
-				.serve_connection(stream, FaucetSvc::new(client, sats_per_request, node, users))
+				.serve_connection(
+					stream,
+					FaucetSvc::new(client, sats_per_request, node, users, wordlist),
+				)
 				.await
 			{
 				println!("Error serving connection: {:?}", err);
@@ -189,14 +184,25 @@ struct FaucetSvc {
 	sats_per_request: u64,
 	node: Arc<Node<FilesystemStore>>,
 	users: Arc<Mutex<HashMap<String, UserState>>>,
+	wordlist: Arc<Vec<String>>,
 }
 
 impl FaucetSvc {
 	pub fn new(
 		rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Node<FilesystemStore>>,
-		users: Arc<Mutex<HashMap<String, UserState>>>,
+		users: Arc<Mutex<HashMap<String, UserState>>>, wordlist: Arc<Vec<String>>,
 	) -> Self {
-		Self { rpc_client, sats_per_request, node, users }
+		Self { rpc_client, sats_per_request, node, users, wordlist }
+	}
+
+	fn new_user(&self) -> String {
+		let mut user_lock = self.users.lock().unwrap();
+		let mut new_passphrase = generate_passphrase(Arc::clone(&self.wordlist));
+		while user_lock.contains_key(&new_passphrase) {
+			new_passphrase = generate_passphrase(Arc::clone(&self.wordlist));
+		}
+		user_lock.insert(new_passphrase.clone(), UserState::New);
+		new_passphrase
 	}
 }
 
@@ -266,8 +272,8 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 				}
 			}
 			Some("getinvoice") => {
-				let mut users = self.users.lock().unwrap();
 				if let Some(passphrase) = url_parts.next() {
+					let mut users = self.users.lock().unwrap();
 					let pass = format!("{}", passphrase);
 					println!("PASS: {:?}", pass);
 					let passphrase = passphrase.to_string();
@@ -301,6 +307,14 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 						}
 						_ => {}
 					}
+				} else {
+					let new_passphrase = self.new_user();
+					let msg = format!(
+						"<meta http-equiv=\"refresh\" content=\"0; URL=./getinvoice/{}\" />Generated new passphrase: {}",
+						new_passphrase, new_passphrase,
+						);
+					println!("{}", msg);
+					return mk_response(msg);
 				}
 			}
 			Some("getchannel") => {
@@ -464,4 +478,19 @@ fn bytes_to_hex(value: &[u8]) -> String {
 		write!(&mut res, "{:02x}", v).expect("Unable to write");
 	}
 	res
+}
+
+fn read_wordlist(path: &str) -> Result<Vec<String>, std::io::Error> {
+	let mut res = Vec::new();
+	for line in std::fs::read_to_string(path)?.lines() {
+		res.push(line.to_string());
+	}
+	Ok(res)
+}
+
+fn generate_passphrase(wordlist: Arc<Vec<String>>) -> String {
+	let first = wordlist.choose(&mut rand::thread_rng()).unwrap();
+	let second = wordlist.choose(&mut rand::thread_rng()).unwrap();
+	let third = wordlist.choose(&mut rand::thread_rng()).unwrap();
+	format!("{}-{}-{}", first, second, third)
 }
