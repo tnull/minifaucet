@@ -66,6 +66,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let mut config = Config::default();
 	config.network = Network::Regtest;
 	config.listening_address = Some("0.0.0.0:9736".parse().unwrap());
+	config.wallet_sync_interval_secs = 15;
+	config.onchain_wallet_sync_interval_secs = 15;
+	config.fee_rate_cache_update_interval_secs = 15;
 
 	let builder = Builder::from_config(config);
 	builder.set_esplora_server(esplora_url.clone());
