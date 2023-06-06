@@ -30,7 +30,7 @@ use tokio::net::TcpListener;
 use bitcoin::hashes::Hash;
 use bitcoin::network::constants::Network;
 use ldk_node::io::SqliteStore;
-use ldk_node::{Builder, Config, Event, NetAddress, Node};
+use ldk_node::{Builder, Config, Event, NetAddress, Node, LogLevel};
 use lightning_invoice::Invoice;
 
 #[tokio::main]
@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	config.wallet_sync_interval_secs = 15;
 	config.onchain_wallet_sync_interval_secs = 15;
 	config.fee_rate_cache_update_interval_secs = 15;
+	config.log_level = LogLevel::Trace;
 
 	let builder = Builder::from_config(config);
 	builder.set_esplora_server(esplora_url.clone());
