@@ -30,7 +30,7 @@ use tokio::net::TcpListener;
 use bitcoin::hashes::Hash;
 use bitcoin::network::constants::Network;
 use ldk_node::io::SqliteStore;
-use ldk_node::{Builder, Config, Event, NetAddress, Node, LogLevel};
+use ldk_node::{Builder, Config, Event, LogLevel, NetAddress, Node};
 use lightning_invoice::Invoice;
 
 #[tokio::main]
