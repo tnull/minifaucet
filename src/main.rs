@@ -29,7 +29,7 @@ use tokio::net::TcpListener;
 
 use bitcoin::hashes::Hash;
 use bitcoin::network::constants::Network;
-use ldk_node::io::FilesystemStore;
+use ldk_node::io::SqliteStore;
 use ldk_node::{Builder, Config, Event, NetAddress, Node};
 use lightning_invoice::Invoice;
 
@@ -182,14 +182,14 @@ impl UserState {
 struct FaucetSvc {
 	rpc_client: Arc<Client>,
 	sats_per_request: u64,
-	node: Arc<Node<FilesystemStore>>,
+	node: Arc<Node<SqliteStore>>,
 	users: Arc<Mutex<HashMap<String, UserState>>>,
 	wordlist: Arc<Vec<String>>,
 }
 
 impl FaucetSvc {
 	pub fn new(
-		rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Node<FilesystemStore>>,
+		rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Node<SqliteStore>>,
 		users: Arc<Mutex<HashMap<String, UserState>>>, wordlist: Arc<Vec<String>>,
 	) -> Self {
 		Self { rpc_client, sats_per_request, node, users, wordlist }
