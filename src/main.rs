@@ -2,12 +2,8 @@ use std::collections::hash_map;
 use std::collections::HashMap;
 use std::env;
 use std::fmt::Write;
-use std::fs::File;
 use std::future::Future;
-use std::io::BufRead;
-use std::io::BufReader;
 use std::net::SocketAddr;
-use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
@@ -22,6 +18,7 @@ use hyper::body::Bytes;
 use hyper::server::conn::http1;
 use hyper::service::Service;
 use hyper::{body::Incoming as IncomingBody, Request, Response};
+use rand::seq::SliceRandom;
 
 use bitcoin::secp256k1::PublicKey;
 use bitcoin::util::address::Address;
@@ -32,7 +29,8 @@ use tokio::net::TcpListener;
 
 use bitcoin::hashes::Hash;
 use bitcoin::network::constants::Network;
-use ldk_node::{Builder, Config, Event, Node};
+use ldk_node::io::SqliteStore;
+use ldk_node::{Builder, Config, Event, LogLevel, NetAddress, Node};
 use lightning_invoice::Invoice;
 
 #[tokio::main]
@@ -52,16 +50,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	let esplora_url = &args[4];
 	let cookie_file_path = &args[5];
 
-	let file = File::open("./passphrases.txt")?;
-	let reader = BufReader::new(file);
+	let wordlist = Arc::new(read_wordlist("./bip39-wordlist.txt").expect("Couldn't read wordlist"));
 
-	let users = Arc::new(Mutex::new(HashMap::new()));
-	{
-		let mut user_lock = users.lock().unwrap();
-		for l in reader.lines().map(|l| l.expect("Could not parse line")) {
-			user_lock.insert(l, UserState::New);
-		}
-	}
+	let users: Arc<Mutex<HashMap<String, UserState>>> = Arc::new(Mutex::new(HashMap::new()));
 
 	let addr: SocketAddr = listening_address.parse().expect("Couldn't parse listening address");
 
@@ -73,13 +64,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	);
 
 	let mut config = Config::default();
-	config.esplora_server_url = esplora_url.to_string();
 	config.network = Network::Regtest;
 	config.listening_address = Some("0.0.0.0:9736".parse().unwrap());
+	config.wallet_sync_interval_secs = 15;
+	config.onchain_wallet_sync_interval_secs = 15;
+	config.fee_rate_cache_update_interval_secs = 15;
+	config.log_level = LogLevel::Trace;
 
 	let builder = Builder::from_config(config);
+	builder.set_esplora_server(esplora_url.clone());
 
-	let node = Arc::new(builder.build());
+	let node = builder.build();
 	node.start()?;
 
 	let node_ref = Arc::clone(&node);
@@ -96,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 			}
 			let node = Arc::clone(&node_ref);
 			let users = Arc::clone(&users_ref);
-			match node.next_event() {
+			match node.wait_next_event() {
 				Event::PaymentReceived { payment_hash, amount_msat } => {
 					println!("Received payment: {:?} of amount {}", payment_hash, amount_msat);
 					let mut users = users.lock().unwrap();
@@ -126,9 +121,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 		let (stream, _) = listener.accept().await?;
 
 		let client = Arc::clone(&rpc_client);
+		let wordlist = Arc::clone(&wordlist);
 		tokio::task::spawn(async move {
 			if let Err(err) = http1::Builder::new()
-				.serve_connection(stream, FaucetSvc::new(client, sats_per_request, node, users))
+				.serve_connection(
+					stream,
+					FaucetSvc::new(client, sats_per_request, node, users, wordlist),
+				)
 				.await
 			{
 				println!("Error serving connection: {:?}", err);
@@ -187,16 +186,27 @@ impl UserState {
 struct FaucetSvc {
 	rpc_client: Arc<Client>,
 	sats_per_request: u64,
-	node: Arc<Node>,
+	node: Arc<Node<SqliteStore>>,
 	users: Arc<Mutex<HashMap<String, UserState>>>,
+	wordlist: Arc<Vec<String>>,
 }
 
 impl FaucetSvc {
 	pub fn new(
-		rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Node>,
-		users: Arc<Mutex<HashMap<String, UserState>>>,
+		rpc_client: Arc<Client>, sats_per_request: u64, node: Arc<Node<SqliteStore>>,
+		users: Arc<Mutex<HashMap<String, UserState>>>, wordlist: Arc<Vec<String>>,
 	) -> Self {
-		Self { rpc_client, sats_per_request, node, users }
+		Self { rpc_client, sats_per_request, node, users, wordlist }
+	}
+
+	fn new_user(&self) -> String {
+		let mut user_lock = self.users.lock().unwrap();
+		let mut new_passphrase = generate_passphrase(Arc::clone(&self.wordlist));
+		while user_lock.contains_key(&new_passphrase) {
+			new_passphrase = generate_passphrase(Arc::clone(&self.wordlist));
+		}
+		user_lock.insert(new_passphrase.clone(), UserState::New);
+		new_passphrase
 	}
 }
 
@@ -266,8 +276,8 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 				}
 			}
 			Some("getinvoice") => {
-				let mut users = self.users.lock().unwrap();
 				if let Some(passphrase) = url_parts.next() {
+					let mut users = self.users.lock().unwrap();
 					let pass = format!("{}", passphrase);
 					println!("PASS: {:?}", pass);
 					let passphrase = passphrase.to_string();
@@ -301,6 +311,14 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 						}
 						_ => {}
 					}
+				} else {
+					let new_passphrase = self.new_user();
+					let msg = format!(
+						"<meta http-equiv=\"refresh\" content=\"0; URL=./getinvoice/{}\" />Generated new passphrase: {}",
+						new_passphrase, new_passphrase,
+						);
+					println!("{}", msg);
+					return mk_response(msg);
 				}
 			}
 			Some("getchannel") => {
@@ -412,14 +430,11 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 	}
 }
 
-pub fn convert_peer_info(peer_pubkey_and_ip_addr: &str) -> Result<(PublicKey, SocketAddr), ()> {
+pub fn convert_peer_info(peer_pubkey_and_ip_addr: &str) -> Result<(PublicKey, NetAddress), ()> {
 	if let Some((pubkey_str, peer_str)) = peer_pubkey_and_ip_addr.split_once('@') {
 		if let Some(pubkey) = hex_to_compressed_pubkey(pubkey_str) {
-			if let Some(peer_addr) =
-				peer_str.to_socket_addrs().ok().and_then(|mut r| r.next()).map(|pa| pa)
-			{
-				return Ok((pubkey, peer_addr));
-			}
+			let peer_addr = peer_str.parse().map_err(|_| ())?;
+			return Ok((pubkey, peer_addr));
 		}
 	}
 	Err(())
@@ -467,4 +482,19 @@ fn bytes_to_hex(value: &[u8]) -> String {
 		write!(&mut res, "{:02x}", v).expect("Unable to write");
 	}
 	res
+}
+
+fn read_wordlist(path: &str) -> Result<Vec<String>, std::io::Error> {
+	let mut res = Vec::new();
+	for line in std::fs::read_to_string(path)?.lines() {
+		res.push(line.to_string());
+	}
+	Ok(res)
+}
+
+fn generate_passphrase(wordlist: Arc<Vec<String>>) -> String {
+	let first = wordlist.choose(&mut rand::thread_rng()).unwrap();
+	let second = wordlist.choose(&mut rand::thread_rng()).unwrap();
+	let third = wordlist.choose(&mut rand::thread_rng()).unwrap();
+	format!("{}-{}-{}", first, second, third)
 }
