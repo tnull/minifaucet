@@ -71,10 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 	config.fee_rate_cache_update_interval_secs = 15;
 	config.log_level = LogLevel::Trace;
 
-	let builder = Builder::from_config(config);
+	let mut builder = Builder::from_config(config);
 	builder.set_esplora_server(esplora_url.clone());
 
-	let node = builder.build();
+	let node = Arc::new(builder.build().unwrap());
 	node.start()?;
 
 	let node_ref = Arc::clone(&node);
@@ -330,6 +330,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 								addr,
 								self.sats_per_request,
 								Some(self.sats_per_request * 1000 / 2),
+								None,
 								true,
 							) {
 								Ok(_) => {
@@ -356,7 +357,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 				}
 			}
 			Some("getfundingaddress") => {
-				let msg = format!("{}", self.node.new_funding_address().unwrap());
+				let msg = format!("{}", self.node.new_onchain_address().unwrap());
 				println!("{}", msg);
 				return mk_response(msg);
 			}
