@@ -12,8 +12,7 @@ http-body-util = "0.1.0-rc.2"
 bitcoincore-rpc = "0.16.0"
 bitcoin = "0.29.2"
 rand = "0.8.5"
-#ldk-node = "0.1.0-alpha.1"
-ldk-node = { git = "https://github.com/tnull/ldk-node", rev = "547836735a24689cd2c95200300532e725027bf7" }
+ldk-node = "0.1.0"
 
 
 lightning = { version = "0.0.115", features = ["max_level_trace", "std"] }
