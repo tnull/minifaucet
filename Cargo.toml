@@ -6,9 +6,10 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-hyper = { version = "1.0.0-rc.3", features = ["full"] }
+hyper = { version = "1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
-http-body-util = "0.1.0-rc.2"
+http-body-util = "0.1"
+hyper-util = { version = "0.1", features = ["full"] }
 bitcoincore-rpc = "0.16.0"
 bitcoin = "0.29.2"
 rand = "0.8.5"

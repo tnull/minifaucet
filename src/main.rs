@@ -25,6 +25,7 @@ use bitcoin::util::address::Address;
 use bitcoin::Amount;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use hyper::Method;
+use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
 use bitcoin::hashes::Hash;
@@ -123,10 +124,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 		let client = Arc::clone(&rpc_client);
 		let wordlist = Arc::clone(&wordlist);
+		let io = TokioIo::new(stream);
+
 		tokio::task::spawn(async move {
 			if let Err(err) = http1::Builder::new()
 				.serve_connection(
-					stream,
+					io,
 					FaucetSvc::new(client, sats_per_request, node, users, wordlist),
 				)
 				.await
@@ -216,7 +219,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 	type Error = hyper::Error;
 	type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-	fn call(&mut self, req: Request<IncomingBody>) -> Self::Future {
+	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
 		fn mk_response(s: String) -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
 			let msg = format!("<html><style>body {{ font-family: \"Lucida Console\", \"Courier New\", monospace; }}</style><head></head><body>{}</body></html>", s);
 			Box::pin(async { Ok(Response::builder().body(Full::new(Bytes::from(msg))).unwrap()) })
