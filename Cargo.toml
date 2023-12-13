@@ -12,8 +12,8 @@ http-body-util = "0.1.0-rc.2"
 bitcoincore-rpc = "0.16.0"
 bitcoin = "0.29.2"
 rand = "0.8.5"
-ldk-node = "0.1.0"
+ldk-node = "0.2.0"
 
 
-lightning = { version = "0.0.115", features = ["max_level_trace", "std"] }
-lightning-invoice = { version = "0.23" }
+lightning = { version = "0.0.118", features = ["max_level_trace", "std"] }
+lightning-invoice = { version = "0.26" }
