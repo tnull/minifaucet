@@ -25,13 +25,15 @@ use bitcoin::util::address::Address;
 use bitcoin::Amount;
 use bitcoincore_rpc::{Auth, Client, RpcApi};
 use hyper::Method;
+use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 
 use bitcoin::hashes::Hash;
 use bitcoin::network::constants::Network;
-use ldk_node::io::SqliteStore;
-use ldk_node::{Builder, Config, Event, LogLevel, NetAddress, Node};
-use lightning_invoice::Invoice;
+use ldk_node::io::sqlite_store::SqliteStore;
+use ldk_node::lightning::ln::msgs::SocketAddress;
+use ldk_node::{Builder, Config, Event, LogLevel, Node};
+use lightning_invoice::Bolt11Invoice;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -65,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 	let mut config = Config::default();
 	config.network = Network::Regtest;
-	config.listening_address = Some("0.0.0.0:9736".parse().unwrap());
+	config.listening_addresses = Some(vec!["0.0.0.0:9736".parse().unwrap()]);
 	config.wallet_sync_interval_secs = 15;
 	config.onchain_wallet_sync_interval_secs = 15;
 	config.fee_rate_cache_update_interval_secs = 15;
@@ -122,10 +124,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
 		let client = Arc::clone(&rpc_client);
 		let wordlist = Arc::clone(&wordlist);
+		let io = TokioIo::new(stream);
+
 		tokio::task::spawn(async move {
 			if let Err(err) = http1::Builder::new()
 				.serve_connection(
-					stream,
+					io,
 					FaucetSvc::new(client, sats_per_request, node, users, wordlist),
 				)
 				.await
@@ -142,12 +146,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum UserState {
 	New,
-	CreatedInvoice { invoice: Invoice, time_created: SystemTime },
-	PaidInvoice { invoice: Invoice, time_created: SystemTime, time_paid: SystemTime },
+	CreatedInvoice { invoice: Bolt11Invoice, time_created: SystemTime },
+	PaidInvoice { invoice: Bolt11Invoice, time_created: SystemTime, time_paid: SystemTime },
 }
 
 impl UserState {
-	pub fn created_invoice(&mut self, invoice: Invoice) {
+	pub fn created_invoice(&mut self, invoice: Bolt11Invoice) {
 		if let UserState::New = self {
 			let time_created = SystemTime::now();
 			*self = Self::CreatedInvoice { invoice, time_created }
@@ -165,7 +169,7 @@ impl UserState {
 		}
 	}
 
-	pub fn invoice(&self) -> Option<&Invoice> {
+	pub fn invoice(&self) -> Option<&Bolt11Invoice> {
 		if let UserState::CreatedInvoice { invoice, time_created: _ } = self {
 			return Some(invoice);
 		}
@@ -215,7 +219,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 	type Error = hyper::Error;
 	type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-	fn call(&mut self, req: Request<IncomingBody>) -> Self::Future {
+	fn call(&self, req: Request<IncomingBody>) -> Self::Future {
 		fn mk_response(s: String) -> <FaucetSvc as Service<Request<IncomingBody>>>::Future {
 			let msg = format!("<html><style>body {{ font-family: \"Lucida Console\", \"Courier New\", monospace; }}</style><head></head><body>{}</body></html>", s);
 			Box::pin(async { Ok(Response::builder().body(Full::new(Bytes::from(msg))).unwrap()) })
@@ -392,7 +396,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 			Some("payinvoice") => {
 				let users = self.users.lock().unwrap();
 				if let Some(raw_invoice) = url_parts.next() {
-					if let Ok(invoice) = Invoice::from_str(raw_invoice) {
+					if let Ok(invoice) = Bolt11Invoice::from_str(raw_invoice) {
 						for (_, user) in users.iter() {
 							if let Some(known_invoice) = user.invoice() {
 								// Return so we don't pay our own invoices.
@@ -431,7 +435,7 @@ impl Service<Request<IncomingBody>> for FaucetSvc {
 	}
 }
 
-pub fn convert_peer_info(peer_pubkey_and_ip_addr: &str) -> Result<(PublicKey, NetAddress), ()> {
+pub fn convert_peer_info(peer_pubkey_and_ip_addr: &str) -> Result<(PublicKey, SocketAddress), ()> {
 	if let Some((pubkey_str, peer_str)) = peer_pubkey_and_ip_addr.split_once('@') {
 		if let Some(pubkey) = hex_to_compressed_pubkey(pubkey_str) {
 			let peer_addr = peer_str.parse().map_err(|_| ())?;
